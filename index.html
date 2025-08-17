@@ -1,119 +1,80 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AirPaint</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f5f5f7;
-      color: #1d1d1f;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
-    }
-    header {
-      background: #fff;
-      padding: 1rem;
-      text-align: center;
-      font-size: 1.2rem;
-      font-weight: 600;
-      border-bottom: 1px solid #ddd;
-    }
-    #controls {
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      padding: 0.5rem;
-      background: #fff;
-      border-bottom: 1px solid #ddd;
-    }
-    button {
-      padding: 0.6rem 1rem;
-      border-radius: 0.8rem;
-      border: none;
-      font-size: 1rem;
-      background: #007aff;
-      color: white;
-      font-weight: 500;
-    }
-    button:disabled {
-      background: #ccc;
-    }
-    #video {
-      display: none;
-    }
-    #canvas {
-      flex: 1;
-      background: #000;
-      width: 100%;
-      height: 100%;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirPaint Handtracking</title>
+<style>
+  body {margin:0; display:flex; flex-direction:column; height:100vh; background:#000; color:#fff; font-family:-apple-system, sans-serif;}
+  header{padding:1rem; text-align:center; font-weight:600; background:#111;}
+  #controls{display:flex; justify-content:center; gap:1rem; padding:.5rem; background:#222;}
+  button{padding:.6rem 1rem; border-radius:.8rem; border:none; background:#007aff; color:#fff; font-weight:500;}
+  button:disabled{background:#555;}
+  #video{display:none;}
+  #canvas{flex:1; width:100%; height:100%; background:#000;}
+</style>
 </head>
 <body>
-  <header>AirPaint – Kamera Test</header>
-  <div id="controls">
-    <button id="startBtn">🎥 Kamera starten</button>
-    <button id="switchBtn" disabled>🔄 Front/Rück</button>
-  </div>
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas"></canvas>
+<header>AirPaint – Handtracking Test</header>
+<div id="controls">
+  <button id="startBtn">🎥 Kamera starten</button>
+  <button id="switchBtn" disabled>🔄 Front/Rück</button>
+</div>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
 
-  <script>
-    const startBtn = document.getElementById("startBtn");
-    const switchBtn = document.getElementById("switchBtn");
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
+<script>
+const startBtn=document.getElementById("startBtn");
+const switchBtn=document.getElementById("switchBtn");
+const video=document.getElementById("video");
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+let stream=null, useFront=true, lastPoint=null;
 
-    let currentStream = null;
-    let useFront = true;
+function resizeCanvas(){
+  canvas.width=window.innerWidth;
+  canvas.height=window.innerHeight - document.querySelector("header").offsetHeight - document.getElementById("controls").offsetHeight;
+}
+window.addEventListener("resize",resizeCanvas);
+resizeCanvas();
 
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight - document.querySelector("header").offsetHeight - document.getElementById("controls").offsetHeight;
-    }
-    window.addEventListener("resize", resizeCanvas);
-    resizeCanvas();
+async function startCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:useFront?"user":"environment"}, audio:false});
+    video.srcObject=stream;
+    video.onloadedmetadata=()=>{video.play(); processVideo();}
+    switchBtn.disabled=false;
+  }catch(e){alert("Kamera konnte nicht gestartet werden: "+e.message);}
+}
 
-    async function startCamera() {
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-      }
-      try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: useFront ? "user" : "environment" },
-          audio: false
-        });
-        video.srcObject = currentStream;
-        video.onloadedmetadata = () => {
-          video.play();
-          drawLoop();
-        };
-        switchBtn.disabled = false;
-      } catch (err) {
-        alert("Kamera konnte nicht gestartet werden: " + err.message);
-        console.error(err);
-      }
-    }
+function lineTo(x,y){
+  ctx.lineWidth=6; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.strokeStyle="#0a84ff";
+  if(!lastPoint){ctx.beginPath(); ctx.moveTo(x,y);} ctx.lineTo(x,y); ctx.stroke(); lastPoint={x,y};
+}
 
-    function drawLoop() {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      requestAnimationFrame(drawLoop);
-    }
+function pinch(lm){return Math.hypot(lm[4].x-lm[8].x,lm[4].y-lm[8].y)<0.05;}
+function toCanvas(p){return {x:p.x*canvas.width, y:p.y*canvas.height};}
 
-    startBtn.onclick = () => {
-      startCamera();
-    };
+const hands=new Hands({locateFile:file=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+hands.setOptions({maxNumHands:1,modelComplexity:1,selfieMode:true,minDetectionConfidence:0.6,minTrackingConfidence:0.6});
+hands.onResults(results=>{
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(results.multiHandLandmarks && results.multiHandLandmarks.length){
+    const lm=results.multiHandLandmarks[0];
+    const pt=toCanvas(lm[8]);
+    if(pinch(lm)) lineTo(pt.x,pt.y); else lastPoint=null;
+    drawConnectors(ctx,lm,HAND_CONNECTIONS,{color:'#fff55',lineWidth:2});
+    drawLandmarks(ctx,lm,{color:'#fff',lineWidth:1});
+  }else lastPoint=null;
+});
 
-    switchBtn.onclick = () => {
-      useFront = !useFront;
-      startCamera();
-    };
-  </script>
+async function processVideo(){await hands.send({image:video}); requestAnimationFrame(processVideo);}
+
+startBtn.onclick=startCamera;
+switchBtn.onclick=()=>{useFront=!useFront; startCamera();}
+</script>
 </body>
 </html>
